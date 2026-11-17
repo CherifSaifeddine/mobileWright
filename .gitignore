@@ -1,0 +1,9 @@
+node_modules/
+dist/
+test-results/
+mobilewright-report/
+*.log
+.env
+apps/*.apk
+apps/*.ipa
+!apps/.gitkeep

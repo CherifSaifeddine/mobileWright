@@ -1,0 +1,38 @@
+{
+  "name": "mobilewright-project",
+  "version": "1.0.0",
+  "description": "Projet de tests E2E mobile (iOS & Android) avec Mobilewright",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "doctor": "mobilewright doctor",
+    "devices": "mobilewright devices",
+    "inspect": "mobilewright inspect",
+
+    "test": "npm run test:android",
+    "test:android": "cross-env MW_PLATFORM=android mobilewright test",
+    "test:ios": "cross-env MW_PLATFORM=ios mobilewright test",
+    "test:all": "cross-env MW_PLATFORM=all mobilewright test",
+
+    "test:android:cloud": "cross-env MW_PLATFORM=android MW_PROVIDER=mobilenext mobilewright test",
+    "test:ios:cloud": "cross-env MW_PLATFORM=ios MW_PROVIDER=mobilenext mobilewright test",
+    "test:all:cloud": "cross-env MW_PLATFORM=all MW_PROVIDER=mobilenext mobilewright test",
+
+    "report": "mobilewright show-report",
+
+    "devices:android:start": "bash scripts/start-android.sh",
+    "devices:ios:start": "bash scripts/start-ios.sh"
+  },
+  "dependencies": {
+    "mobilewright": "latest",
+    "@mobilewright/test": "latest"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "cross-env": "^7.0.3",
+    "@types/node": "^20.14.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

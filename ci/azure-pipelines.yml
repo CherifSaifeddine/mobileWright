@@ -1,0 +1,114 @@
+# Pipeline Mobilewright — tests E2E mobile (Android / iOS / les deux)
+#
+# Déclenche ce pipeline manuellement ("Run pipeline") pour choisir :
+#   - platform : android (défaut) | ios | all
+#   - provider : mobilecli (émulateur/simulateur local, défaut) | mobilenext (Mobile Next Cloud)
+
+trigger:
+  - main
+
+parameters:
+  - name: platform
+    displayName: "Plateforme à tester"
+    type: string
+    default: android
+    values:
+      - android
+      - ios
+      - all
+
+  - name: provider
+    displayName: "Provider (device local ou Mobile Next Cloud)"
+    type: string
+    default: mobilecli
+    values:
+      - mobilecli
+      - mobilenext
+
+variables:
+  # mobilecli => besoin d'accélération matérielle pour Android ET d'Xcode
+  # pour iOS => seule l'image macOS hébergée par Microsoft supporte les deux.
+  # mobilenext => aucun device local nécessaire, une image Ubuntu suffit
+  # (les tests appellent l'API Mobile Next Cloud à distance).
+  ${{ if eq(parameters.provider, 'mobilenext') }}:
+    vmImageName: "ubuntu-latest"
+  ${{ else }}:
+    vmImageName: "macos-latest"
+
+pool:
+  vmImage: $(vmImageName)
+
+steps:
+  - task: NodeTool@0
+    inputs:
+      versionSpec: "20.x"
+    displayName: "Installer Node.js"
+
+  - script: npm ci
+    displayName: "Installer les dépendances"
+
+  # ---------- Démarrage des devices locaux (uniquement si provider = mobilecli) ----------
+
+  - ${{ if and(eq(parameters.provider, 'mobilecli'), in(parameters.platform, 'android', 'all')) }}:
+      - bash: |
+          echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+            --install "system-images;android-35;google_apis;x86_64"
+
+          echo "no" | $ANDROID_HOME/cmdline-tools/latest/bin/avdmanager create avd \
+            -n ci_android_emulator -d "pixel_6" \
+            -k "system-images;android-35;google_apis;x86_64" --force
+
+          nohup $ANDROID_HOME/emulator/emulator -avd ci_android_emulator \
+            -no-snapshot -no-window -no-audio -no-boot-anim -accel on \
+            > /tmp/emulator.log 2>&1 &
+
+          $ANDROID_HOME/platform-tools/adb wait-for-device shell \
+            'while [[ -z $(getprop sys.boot_completed | tr -d "\r") ]]; do sleep 1; done'
+
+          $ANDROID_HOME/platform-tools/adb devices
+        displayName: "Créer et démarrer l'émulateur Android"
+
+  - ${{ if and(eq(parameters.provider, 'mobilecli'), in(parameters.platform, 'ios', 'all')) }}:
+      - bash: |
+          xcrun simctl list devices available
+          xcrun simctl boot "iPhone 16" || true
+          xcrun simctl bootstatus "iPhone 16" -b
+        displayName: "Démarrer le simulateur iOS"
+
+  # ---------- Installation de l'app sur le(s) device(s) ----------
+
+  - ${{ if eq(parameters.provider, 'mobilecli') }}:
+      - script: npx mobilewright install
+        displayName: "Installer l'app (.apk/.ipa) sur le(s) device(s)"
+        env:
+          MW_APP_PATH: $(MW_APP_PATH)
+
+  # ---------- Exécution des tests ----------
+
+  - script: npx mobilewright test --reporter junit,html
+    displayName: "Lancer les tests Mobilewright (${{ parameters.platform }} / ${{ parameters.provider }})"
+    env:
+      MW_PLATFORM: ${{ parameters.platform }}
+      MW_PROVIDER: ${{ parameters.provider }}
+      MW_BUNDLE_ID: $(MW_BUNDLE_ID)
+      MW_APP_PATH: $(MW_APP_PATH)
+      MOBILENEXT_URL: $(MOBILENEXT_URL)
+      MOBILENEXT_API_KEY: $(MOBILENEXT_API_KEY)
+      CI: "true"
+
+  # ---------- Publication des résultats ----------
+
+  - task: PublishTestResults@2
+    condition: succeededOrFailed()
+    inputs:
+      testResultsFormat: "JUnit"
+      testResultsFiles: "test-results/**/*.xml"
+      failTaskOnFailedTests: true
+    displayName: "Publier les résultats de tests"
+
+  - task: PublishPipelineArtifact@1
+    condition: succeededOrFailed()
+    inputs:
+      targetPath: "mobilewright-report"
+      artifact: "mobilewright-html-report"
+    displayName: "Publier le rapport HTML"
